@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "ScanCart",
+  "version": "0.1.0",
+  "description": "Real-time shopping intelligence for Amazon skincare and food products.",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.amazon.com/*",
+    "https://amazon.com/*",
+    "https://world.openfoodfacts.org/*",
+    "https://world.openbeautyfacts.org/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "ScanCart"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.amazon.com/*",
+        "https://amazon.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/*"
+      ],
+      "matches": [
+        "https://www.amazon.com/*",
+        "https://amazon.com/*"
+      ]
+    }
+  ]
+}

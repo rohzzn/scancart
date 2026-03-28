@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ScanCart</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <div class="panel-app">
+      <header class="panel-topbar">
+        <div class="brand-block">
+          <p class="eyebrow">ScanCart</p>
+          <h1>Shopping intelligence</h1>
+          <p class="topbar-subtitle">Explain products before you buy them.</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-analysis-button" class="button ghost small">Refresh</button>
+          <button id="open-settings-button" class="button ghost small">Settings</button>
+        </div>
+      </header>
+
+      <main id="panel-content" class="panel-content">
+        <section class="empty-state">
+          <div class="orb"></div>
+          <p class="eyebrow">Ready</p>
+          <h2>Open an Amazon product page</h2>
+          <p>ScanCart analyzes skincare and food products with deterministic scoring, source checks, and optional Gemini explanations.</p>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

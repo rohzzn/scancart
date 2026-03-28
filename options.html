@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ScanCart Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="settings-shell">
+      <header class="settings-header">
+        <div>
+          <p class="eyebrow">ScanCart</p>
+          <h1>Preferences and AI setup</h1>
+        </div>
+        <p class="muted">This MVP stores your settings locally in Chrome. For production, Gemini calls should move behind a backend.</p>
+      </header>
+
+      <section class="settings-card">
+        <h2>Gemini API</h2>
+        <label class="field">
+          <span>Gemini API key</span>
+          <input id="gemini-api-key" type="password" placeholder="Paste your Gemini API key">
+        </label>
+        <label class="field">
+          <span>Gemini model</span>
+          <input id="gemini-model" type="text" value="gemini-2.0-flash">
+        </label>
+        <p class="field-hint">If left blank, ScanCart falls back to deterministic non-AI explanations.</p>
+      </section>
+
+      <section class="settings-card">
+        <h2>Preferences</h2>
+        <div id="preferences-grid" class="preferences-grid"></div>
+      </section>
+
+      <section class="settings-card">
+        <div class="actions-row">
+          <button id="save-settings-button" class="button primary">Save settings</button>
+          <button id="clear-history-button" class="button ghost">Clear history</button>
+        </div>
+        <p id="save-status" class="save-status"></p>
+      </section>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

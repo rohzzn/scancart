@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ScanCart</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="popup-shell">
+      <section class="popup-hero">
+        <div>
+          <p class="eyebrow">ScanCart</p>
+          <h1>Shopping intelligence, on-page.</h1>
+        </div>
+        <button id="open-panel-button" class="button primary">Open side panel</button>
+      </section>
+
+      <section class="popup-card" id="current-summary-card">
+        <div class="section-head">
+          <h2>Current page</h2>
+          <button id="refresh-button" class="button ghost small">Refresh</button>
+        </div>
+        <div id="current-summary" class="state-line">Open an Amazon product page to start.</div>
+      </section>
+
+      <section class="popup-card">
+        <div class="section-head">
+          <h2>Quick preferences</h2>
+          <button id="settings-button" class="button ghost small">Settings</button>
+        </div>
+        <div id="quick-preferences" class="chip-row"></div>
+      </section>
+
+      <section class="popup-card">
+        <div class="section-head">
+          <h2>Recent analyses</h2>
+        </div>
+        <div id="recent-list" class="stack-list">
+          <div class="state-line">No products analyzed yet.</div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
