@@ -1,4 +1,4 @@
-import { confidenceLabel, escapeHtml, formatPrice, prettyCategory, scoreToneClass } from "./lib/ui.js";
+import { confidenceLabel, escapeHtml, formatPrice, prettyCategory, prettyRetailer, prettySubcategory, scoreToneClass } from "./lib/ui.js";
 
 const panelContent = document.getElementById("panel-content");
 const refreshButton = document.getElementById("refresh-analysis-button");
@@ -12,6 +12,10 @@ let currentAssistantAnswer = "";
 
 function getActiveTab() {
   return chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => tab || null);
+}
+
+function getAlternativeList() {
+  return currentAnalysis?.alternatives?.primary || [];
 }
 
 function renderLoadingState() {
@@ -80,48 +84,62 @@ function renderPreferenceHits(items) {
 }
 
 function renderSources(sources, confidence) {
-  const summaryCard = `
+  const summary = `
     <article class="source-card">
       <div class="source-top">
         <strong>${escapeHtml(confidenceLabel(confidence.overall))}</strong>
         <span class="confidence-chip">${Math.round(confidence.overall * 100)}%</span>
       </div>
-      <div class="source-detail">
-        Identity confidence ${Math.round(confidence.identity * 100)}% - ingredients ${Math.round(confidence.ingredients * 100)}% - nutrition ${Math.round(confidence.nutrition * 100)}%
-      </div>
+      <div class="source-detail">Identity ${Math.round(confidence.identity * 100)}% - category ${Math.round(confidence.category * 100)}% - ingredients ${Math.round(confidence.ingredients * 100)}% - nutrition ${Math.round(confidence.nutrition * 100)}%</div>
     </article>
   `;
 
-  const sourceCards = sources.map((source) => `
+  return summary + sources.map((source) => `
     <article class="source-card">
       <div class="source-top">
-        <strong>${escapeHtml(source.sourceType.replace(/_/g, " "))}</strong>
+        <strong>${escapeHtml(source.sourceLabel)}</strong>
         <span class="mini-metric">${Math.round(source.authorityWeight * 100)}%</span>
       </div>
+      <div class="source-detail">Type: ${escapeHtml(source.matchType || "page")}</div>
       <div class="source-detail">Fields: ${escapeHtml(source.fields.join(", ") || "none")}</div>
       <div class="source-detail">Selected for: ${escapeHtml(source.selectedFor.join(", ") || "support only")}</div>
     </article>
   `).join("");
+}
 
-  return summaryCard + sourceCards;
+function renderAlternativeModes(alternatives) {
+  return `
+    <div class="mini-chip-row">
+      <span class="mode-chip">Healthier ${alternatives.healthier.length}</span>
+      <span class="mode-chip">Better value ${alternatives.betterValue.length}</span>
+      <span class="mode-chip">Preference fit ${alternatives.closerMatch.length}</span>
+    </div>
+  `;
 }
 
 function renderAlternatives(alternatives) {
-  if (!alternatives.length) {
-    return `<article class="alt-card"><div class="muted">No strong alternatives were found yet. Analyze a few similar products and ScanCart will build a much better comparison pool.</div></article>`;
+  const primary = alternatives.primary || [];
+  if (!primary.length) {
+    return `<article class="alt-card"><div class="muted">No strong alternatives were found yet. Analyze a few similar products and ScanCart will build a better comparison pool.</div></article>`;
   }
 
-  return alternatives.map((item, index) => `
+  return primary.map((item, index) => `
     <article class="alt-card">
       <div class="alt-top">
         <img class="alt-image" src="${escapeHtml(item.image || "")}" alt="">
-        <div>
-          <div class="hero-pills">
-            <span class="score-pill ${escapeHtml(scoreToneClass(item.scoreTone))}">${item.score} - ${escapeHtml(item.scoreLabel)}</span>
+        <div class="alt-stack">
+          <div class="alt-title-row">
+            <div>
+              <div class="hero-pills">
+                <span class="score-pill ${escapeHtml(scoreToneClass(item.scoreTone))}">${item.score} - ${escapeHtml(item.scoreLabel)}</span>
+                <span class="pill">${escapeHtml(item.modeLabel || "Alt")}</span>
+                <span class="pill">${escapeHtml(item.sourceLabel || "Candidate pool")}</span>
+              </div>
+              <h4>${escapeHtml(item.title)}</h4>
+            </div>
             <span class="pill">${escapeHtml(item.price || "Price unavailable")}</span>
           </div>
-          <h4>${escapeHtml(item.title)}</h4>
-          <div class="alt-detail">${escapeHtml(item.reasons[0] || "Potentially cleaner or better-fit option.")}</div>
+          <div class="alt-detail">${escapeHtml((item.reasons || []).slice(0, 2).join(" ") || "Potentially cleaner or better-fit option.")}</div>
         </div>
       </div>
       <div class="alt-actions">
@@ -171,9 +189,12 @@ function renderCompareCard() {
 }
 
 function renderAssistantCard() {
-  const suggestedQuestions = currentAnalysis.product.category === "food"
+  const category = currentAnalysis.product.category;
+  const suggestedQuestions = category === "food"
     ? ["Why was this rated caution?", "Is this okay for a high-protein diet?", "What ingredient caused the warning?"]
-    : ["Why is this a concern for sensitive skin?", "What ingredient is doing the most good here?", "Why is the alternative better?"];
+    : category === "skincare"
+      ? ["Why is this a concern for sensitive skin?", "What ingredient is doing the most good here?", "Why is the alternative better?"]
+      : ["Why was this scored conservatively?", "What data is missing here?", "Why does confidence matter for this result?"];
 
   return `
     <section class="assistant-card">
@@ -209,6 +230,39 @@ function renderAssistantCard() {
   `;
 }
 
+function renderStatusBanners(analysis) {
+  const banners = [];
+
+  if (analysis.states.lowConfidence) {
+    banners.push(`
+      <section class="status-banner low-confidence">
+        <p class="banner-title">Limited confidence</p>
+        <p class="banner-copy">Some product fields could not be cross-checked cleanly, so ScanCart keeps the language and score conservative.</p>
+      </section>
+    `);
+  }
+
+  if (analysis.states.unsupportedCategory) {
+    banners.push(`
+      <section class="status-banner unsupported">
+        <p class="banner-title">Unsupported category</p>
+        <p class="banner-copy">This page was detected as a product page, but the product does not fit a strong ScanCart scoring family yet. The score is a cautious fallback.</p>
+      </section>
+    `);
+  }
+
+  if (analysis.warnings.length) {
+    banners.push(`
+      <section class="notice-banner">
+        <strong>Verification note</strong>
+        <div class="signal-detail">${escapeHtml(analysis.warnings.join(" "))}</div>
+      </section>
+    `);
+  }
+
+  return banners.join("");
+}
+
 function renderAnalysis() {
   if (!currentAnalysis) {
     return;
@@ -216,12 +270,8 @@ function renderAnalysis() {
 
   const analysis = currentAnalysis;
   const scoreTone = scoreToneClass(analysis.score.tone);
-  const warningsMarkup = analysis.warnings.length ? `
-    <section class="notice-banner">
-      <strong>Verification note</strong>
-      <div class="signal-detail">${escapeHtml(analysis.warnings.join(" "))}</div>
-    </section>
-  ` : "";
+  const alternatives = analysis.alternatives;
+  const sourceBadges = analysis.sources.slice(0, 4).map((source) => `<span class="source-pill">${escapeHtml(source.sourceLabel)}</span>`).join("");
 
   panelContent.innerHTML = `
     <div class="panel-shell">
@@ -232,8 +282,9 @@ function renderAnalysis() {
               <img class="product-thumb" src="${escapeHtml(analysis.product.image || "")}" alt="">
               <div>
                 <div class="hero-pills">
-                  <span class="pill">Amazon</span>
+                  <span class="pill">${escapeHtml(prettyRetailer(analysis.product.retailerLabel, analysis.product.retailer))}</span>
                   <span class="pill">${escapeHtml(prettyCategory(analysis.product.category))}</span>
+                  <span class="pill">${escapeHtml(prettySubcategory(analysis.product.subcategory))}</span>
                   <span class="confidence-chip">${escapeHtml(confidenceLabel(analysis.confidence.overall))}</span>
                 </div>
                 <h2 class="product-title">${escapeHtml(analysis.product.title)}</h2>
@@ -242,8 +293,9 @@ function renderAnalysis() {
             </div>
             <p class="summary-copy">${escapeHtml(analysis.explanations.shortExplanation)}</p>
             <div class="tag-row">
-              ${(analysis.tags.length ? analysis.tags : ["source-backed score"]).map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}
+              ${(analysis.tags.length ? analysis.tags : ["source-backed score", confidenceLabel(analysis.confidence.overall)]).map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}
             </div>
+            <div class="source-badge-row">${sourceBadges}</div>
             <div class="metrics-strip">
               <div class="metric-card">
                 <p class="metric-label">Price</p>
@@ -251,7 +303,7 @@ function renderAnalysis() {
               </div>
               <div class="metric-card">
                 <p class="metric-label">Rating</p>
-                <div class="metric-value">${escapeHtml(analysis.product.rating ? `${analysis.product.rating}${analysis.product.reviewCount ? ` - ${analysis.product.reviewCount}` : ""}` : "Rating unavailable")}</div>
+                <div class="metric-value">${escapeHtml(analysis.product.rating ? `${analysis.product.rating}${analysis.product.reviewCount ? ` - ${analysis.product.reviewCount} reviews` : ""}` : "Rating unavailable")}</div>
               </div>
               <div class="metric-card">
                 <p class="metric-label">Confidence</p>
@@ -270,12 +322,12 @@ function renderAnalysis() {
                 <span class="score-text">${escapeHtml(analysis.score.label)}</span>
               </div>
             </div>
-            <span class="mini-metric ${escapeHtml(scoreTone)}">${analysis.alternatives.length} alternatives ready</span>
+            <span class="mini-metric ${escapeHtml(scoreTone)}">${getAlternativeList().length} alternatives ready</span>
           </div>
         </div>
       </section>
 
-      ${warningsMarkup}
+      ${renderStatusBanners(analysis)}
 
       <section class="state-card">
         <div class="section-header">
@@ -313,9 +365,7 @@ function renderAnalysis() {
             <h3>Preference fit</h3>
           </div>
         </div>
-        <div class="stack-list">
-          ${renderPreferenceHits(analysis.preferenceHits)}
-        </div>
+        <div class="stack-list">${renderPreferenceHits(analysis.preferenceHits)}</div>
       </section>
 
       <section class="section-card">
@@ -325,9 +375,7 @@ function renderAnalysis() {
             <h3>Source transparency</h3>
           </div>
         </div>
-        <div class="stack-list">
-          ${renderSources(analysis.sources, analysis.confidence)}
-        </div>
+        <div class="stack-list">${renderSources(analysis.sources, analysis.confidence)}</div>
       </section>
 
       <section class="section-card">
@@ -335,12 +383,11 @@ function renderAnalysis() {
           <div>
             <p class="section-kicker">Alternatives</p>
             <h3>Better-fit options</h3>
-            <p class="section-subtitle">Cleaner, stronger, or more preference-aligned options available from the current candidate pool.</p>
+            <p class="section-subtitle">Ranked for cleaner composition, stronger preference fit, or better value inside the current candidate pool.</p>
           </div>
         </div>
-        <div class="alternatives-grid">
-          ${renderAlternatives(analysis.alternatives)}
-        </div>
+        ${renderAlternativeModes(alternatives)}
+        <div class="alternatives-grid">${renderAlternatives(alternatives)}</div>
       </section>
 
       ${renderCompareCard()}
@@ -357,7 +404,8 @@ async function askAssistant(question) {
   const response = await chrome.runtime.sendMessage({
     type: "SCANCART_ASK_ASSISTANT",
     tabId: currentTabId,
-    question
+    question,
+    compareTarget: currentCompare?.alternative || null
   });
 
   currentAssistantAnswer = response?.answer || response?.error || "No answer available.";
@@ -375,20 +423,19 @@ async function loadAnalysis(forceRefresh = false) {
       return;
     }
 
-    const isAmazonProduct = Boolean(tab?.url && /amazon\.com\/.*\/(dp|gp\/product)\//.test(tab.url));
     const response = await chrome.runtime.sendMessage({
       type: forceRefresh ? "SCANCART_REFRESH_ANALYSIS" : "SCANCART_GET_ANALYSIS",
       tabId: currentTabId
     });
 
     let analysis = response?.analysis || null;
-    if (!analysis && isAmazonProduct) {
+    if (!analysis) {
       const refreshResponse = await chrome.runtime.sendMessage({ type: "SCANCART_REFRESH_ANALYSIS", tabId: currentTabId });
       analysis = refreshResponse?.analysis || null;
     }
 
     if (!analysis) {
-      renderEmptyState("Open an Amazon product page", "ScanCart currently analyzes Amazon skincare and food products. Once you land on one, the side panel will populate automatically.");
+      renderEmptyState("Open a supported product page", "ScanCart analyzes product pages across major retailers. Once you land on a supported product page, the side panel will populate automatically.");
       return;
     }
 
@@ -434,7 +481,7 @@ panelContent.addEventListener("click", async (event) => {
   }
 
   if (action === "open-alt") {
-    const alternative = currentAnalysis.alternatives[Number(button.dataset.altIndex)];
+    const alternative = getAlternativeList()[Number(button.dataset.altIndex)];
     if (alternative?.url) {
       await chrome.tabs.update(currentTabId, { url: alternative.url });
     }
@@ -442,20 +489,13 @@ panelContent.addEventListener("click", async (event) => {
   }
 
   if (action === "compare") {
-    const alternative = currentAnalysis.alternatives[Number(button.dataset.altIndex)];
+    const alternative = getAlternativeList()[Number(button.dataset.altIndex)];
     if (!alternative) {
       return;
     }
-    const response = await chrome.runtime.sendMessage({
-      type: "SCANCART_BUILD_COMPARE",
-      tabId: currentTabId,
-      alternative
-    });
+    const response = await chrome.runtime.sendMessage({ type: "SCANCART_BUILD_COMPARE", tabId: currentTabId, alternative });
     if (response?.ok) {
-      currentCompare = {
-        alternative,
-        summary: response.summary
-      };
+      currentCompare = { alternative, summary: response.summary };
       renderAnalysis();
     }
     return;
@@ -490,9 +530,7 @@ settingsButton.addEventListener("click", async () => {
 });
 
 if (chrome.tabs?.onActivated) {
-  chrome.tabs.onActivated.addListener(() => {
-    loadAnalysis();
-  });
+  chrome.tabs.onActivated.addListener(() => loadAnalysis());
 }
 
 if (chrome.tabs?.onUpdated) {
@@ -503,8 +541,6 @@ if (chrome.tabs?.onUpdated) {
   });
 }
 
-window.addEventListener("focus", () => {
-  loadAnalysis();
-});
+window.addEventListener("focus", () => loadAnalysis());
 
 loadAnalysis();

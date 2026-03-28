@@ -25,7 +25,7 @@ function renderPreferences(preferences) {
 
 function renderCurrentSummary(analysis) {
   if (!analysis) {
-    currentSummary.innerHTML = '<div class="state-line">Open an Amazon skincare or food product page to start.</div>';
+    currentSummary.innerHTML = '<div class="state-line">Open a supported product page to start.</div>';
     return;
   }
 

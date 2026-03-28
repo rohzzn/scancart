@@ -9,6 +9,11 @@ import {
 
 const apiKeyInput = document.getElementById("gemini-api-key");
 const modelInput = document.getElementById("gemini-model");
+const usdaKeyInput = document.getElementById("usda-api-key");
+const offBaseUrlInput = document.getElementById("open-food-facts-base-url");
+const obfBaseUrlInput = document.getElementById("open-beauty-facts-base-url");
+const usdaBaseUrlInput = document.getElementById("usda-api-base-url");
+const dsldBaseUrlInput = document.getElementById("nih-dsld-api-base-url");
 const preferencesGrid = document.getElementById("preferences-grid");
 const saveButton = document.getElementById("save-settings-button");
 const clearButton = document.getElementById("clear-history-button");
@@ -27,6 +32,11 @@ async function loadState() {
   const [settings, preferences] = await Promise.all([getSettings(), getPreferences()]);
   apiKeyInput.value = settings.geminiApiKey || "";
   modelInput.value = settings.geminiModel || "gemini-2.0-flash";
+  usdaKeyInput.value = settings.usdaApiKey || "";
+  offBaseUrlInput.value = settings.openFoodFactsBaseUrl || "";
+  obfBaseUrlInput.value = settings.openBeautyFactsBaseUrl || "";
+  usdaBaseUrlInput.value = settings.usdaApiBaseUrl || "";
+  dsldBaseUrlInput.value = settings.nihDsldApiBaseUrl || "";
   renderPreferences(preferences);
 }
 
@@ -39,7 +49,12 @@ saveButton.addEventListener("click", async () => {
   await Promise.all([
     saveSettings({
       geminiApiKey: apiKeyInput.value.trim(),
-      geminiModel: modelInput.value.trim() || "gemini-2.0-flash"
+      geminiModel: modelInput.value.trim() || "gemini-2.0-flash",
+      usdaApiKey: usdaKeyInput.value.trim(),
+      openFoodFactsBaseUrl: offBaseUrlInput.value.trim(),
+      openBeautyFactsBaseUrl: obfBaseUrlInput.value.trim(),
+      usdaApiBaseUrl: usdaBaseUrlInput.value.trim(),
+      nihDsldApiBaseUrl: dsldBaseUrlInput.value.trim()
     }),
     savePreferences(nextPreferences)
   ]);

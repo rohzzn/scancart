@@ -1,5 +1,5 @@
 import { buildAnalysisResult } from "./lib/analysis.js";
-import { askGeminiQuestion, generateAnalysisExplanation } from "./lib/gemini.js";
+import { askGeminiQuestion, generateAnalysisExplanation, generateComparisonExplanation } from "./lib/gemini.js";
 import {
   getLatestAnalysis,
   getHistory,
@@ -9,12 +9,11 @@ import {
   getSettings,
   pushHistoryEntry,
   removeLatestAnalysis,
-  saveLatestAnalysis,
   saveCompareSnapshot,
+  saveLatestAnalysis,
   setLastActiveTabId,
   toggleSavedProduct
 } from "./lib/storage.js";
-import { enrichWithExternalSources } from "./lib/sources.js";
 
 const analysisByTab = new Map();
 const inflightAnalyses = new Map();
@@ -74,6 +73,7 @@ function buildHistoryEntry(analysis) {
     title: analysis.product.title,
     brand: analysis.product.brand,
     category: analysis.product.category,
+    subcategory: analysis.product.subcategory,
     scoreValue: analysis.score.value,
     scoreLabel: analysis.score.label,
     scoreTone: analysis.score.tone,
@@ -82,6 +82,7 @@ function buildHistoryEntry(analysis) {
     summary: analysis.explanations.shortExplanation,
     confidenceOverall: analysis.confidence.overall,
     price: analysis.product.price,
+    retailer: analysis.product.retailerLabel,
     viewedAt: new Date().toISOString()
   };
 }
@@ -95,7 +96,7 @@ async function decorateSavedStatus(analysis) {
 }
 
 async function analyzeExtraction(tabId, extraction) {
-  const inflightKey = `${tabId}:${extraction.url}`;
+  const inflightKey = `${tabId}:${extraction.canonicalUrl || extraction.url}`;
   if (inflightAnalyses.has(inflightKey)) {
     return inflightAnalyses.get(inflightKey);
   }
@@ -107,20 +108,15 @@ async function analyzeExtraction(tabId, extraction) {
       getSettings()
     ]);
 
-    const enrichmentResult = await enrichWithExternalSources(extraction);
-    const analysis = buildAnalysisResult(extraction, enrichmentResult, preferences, history);
+    const analysis = await buildAnalysisResult(extraction, preferences, history, settings);
     const explanations = await generateAnalysisExplanation(analysis, settings);
-    const completed = await decorateSavedStatus({
-      ...analysis,
-      explanations
-    });
+    const completed = await decorateSavedStatus({ ...analysis, explanations });
 
     analysisByTab.set(tabId, completed);
     await saveLatestAnalysis(tabId, completed);
     await pushHistoryEntry(buildHistoryEntry(completed));
     return completed;
-  })()
-    .finally(() => inflightAnalyses.delete(inflightKey));
+  })().finally(() => inflightAnalyses.delete(inflightKey));
 
   inflightAnalyses.set(inflightKey, promise);
   return promise;
@@ -157,22 +153,6 @@ async function requestFreshExtraction(tabId) {
   }
 }
 
-function buildCompareSummary(current, alternative) {
-  const currentReasons = current.flags.slice(0, 2).map((item) => item.title.toLowerCase());
-  const alternativeReasons = alternative.reasons || [];
-  let summary = `${alternative.title} looks like a stronger fit than ${current.product.title} because it scores ${alternative.scoreLabel.toLowerCase()} instead of ${current.score.label.toLowerCase()}.`;
-
-  if (alternativeReasons.length) {
-    summary += ` ${alternativeReasons[0]}`;
-  }
-
-  if (currentReasons.length) {
-    summary += ` The current product is mainly held back by ${currentReasons.join(" and ")}.`;
-  }
-
-  return summary;
-}
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     switch (message.type) {
@@ -194,7 +174,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true, analysis: await getAnalysisForTab(message.tabId) });
           return;
         }
-
         const fallbackTabId = await getLastActiveTabId();
         sendResponse({ ok: true, analysis: await getAnalysisForTab(fallbackTabId) });
         return;
@@ -229,10 +208,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case "SCANCART_TOGGLE_SAVE": {
-        const analysis = typeof message.tabId === "number"
-          ? analysisByTab.get(message.tabId)
-          : analysisByTab.get(await getLastActiveTabId());
-
+        const resolvedTabId = message.tabId ?? (await getLastActiveTabId());
+        const analysis = typeof resolvedTabId === "number" ? analysisByTab.get(resolvedTabId) : null;
         if (!analysis) {
           sendResponse({ ok: false, error: "No analyzed product available to save." });
           return;
@@ -241,7 +218,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const savedProducts = await toggleSavedProduct(analysis);
         const saved = savedProducts.some((item) => item.cacheKey === analysis.cacheKey);
         const updated = { ...analysis, saved };
-        const resolvedTabId = message.tabId ?? (await getLastActiveTabId());
         analysisByTab.set(resolvedTabId, updated);
         await saveLatestAnalysis(resolvedTabId, updated);
         sendResponse({ ok: true, saved });
@@ -273,7 +249,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case "SCANCART_ASK_ASSISTANT": {
-        const analysis = analysisByTab.get(message.tabId ?? (await getLastActiveTabId()));
+        const tabId = message.tabId ?? (await getLastActiveTabId());
+        const analysis = analysisByTab.get(tabId);
         if (!analysis) {
           sendResponse({ ok: false, error: "Analyze a product first." });
           return;
@@ -285,13 +262,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       case "SCANCART_BUILD_COMPARE": {
-        const analysis = analysisByTab.get(message.tabId ?? (await getLastActiveTabId()));
+        const tabId = message.tabId ?? (await getLastActiveTabId());
+        const analysis = analysisByTab.get(tabId);
         if (!analysis || !message.alternative) {
           sendResponse({ ok: false, error: "Comparison data is unavailable." });
           return;
         }
 
-        const summary = buildCompareSummary(analysis, message.alternative);
+        const comparison = await generateComparisonExplanation(analysis, message.alternative, await getSettings());
         await saveCompareSnapshot({
           createdAt: new Date().toISOString(),
           current: {
@@ -300,10 +278,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             scoreLabel: analysis.score.label,
             url: analysis.product.url
           },
-          alternative: message.alternative
+          alternative: message.alternative,
+          summary: comparison.summary
         });
 
-        sendResponse({ ok: true, summary });
+        sendResponse({ ok: true, summary: comparison.summary });
         return;
       }
 

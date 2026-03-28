@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ScanCart Settings</title>
+    <link rel="stylesheet" href="theme.css">
     <link rel="stylesheet" href="options.css">
   </head>
   <body>
@@ -11,13 +12,13 @@
       <header class="settings-header">
         <div>
           <p class="eyebrow">ScanCart</p>
-          <h1>Preferences and AI setup</h1>
+          <h1>Preferences and source setup</h1>
         </div>
-        <p class="muted">This MVP stores your settings locally in Chrome. For production, Gemini calls should move behind a backend.</p>
+        <p class="muted">This build stores your settings locally in Chrome. For production, Gemini and enrichment keys should move behind a backend.</p>
       </header>
 
       <section class="settings-card">
-        <h2>Gemini API</h2>
+        <h2>API keys</h2>
         <label class="field">
           <span>Gemini API key</span>
           <input id="gemini-api-key" type="password" placeholder="Paste your Gemini API key">
@@ -26,7 +27,31 @@
           <span>Gemini model</span>
           <input id="gemini-model" type="text" value="gemini-2.0-flash">
         </label>
-        <p class="field-hint">If left blank, ScanCart falls back to deterministic non-AI explanations.</p>
+        <label class="field">
+          <span>USDA FoodData Central API key</span>
+          <input id="usda-api-key" type="password" placeholder="Paste your USDA API key">
+        </label>
+        <p class="field-hint">If Gemini is blank, ScanCart falls back to deterministic explanations. USDA is used for stronger food enrichment when available.</p>
+      </section>
+
+      <section class="settings-card">
+        <h2>Source configuration</h2>
+        <label class="field">
+          <span>Open Food Facts base URL</span>
+          <input id="open-food-facts-base-url" type="text">
+        </label>
+        <label class="field">
+          <span>Open Beauty Facts base URL</span>
+          <input id="open-beauty-facts-base-url" type="text">
+        </label>
+        <label class="field">
+          <span>USDA API base URL</span>
+          <input id="usda-api-base-url" type="text">
+        </label>
+        <label class="field">
+          <span>NIH DSLD API base URL</span>
+          <input id="nih-dsld-api-base-url" type="text">
+        </label>
       </section>
 
       <section class="settings-card">

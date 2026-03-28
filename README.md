@@ -2,16 +2,17 @@
 
 ScanCart is packaged here as a loadable Chrome Manifest V3 extension with no build step required.
 
-## What Works In This MVP
+## What Works In This Build
 
-- Amazon product page detection
-- automatic page analysis for skincare and food
+- multi-retailer product page detection across major shopping sites
+- automatic page analysis for food, skincare, supplements, and eco-cleaning
 - floating "Scan" quick action button
 - side panel as the main experience
 - deterministic scoring with ingredient and nutrition logic
 - source confidence and transparency
-- Open Food Facts enrichment for food when product identity can be matched
-- Open Beauty Facts enrichment when barcode data is available
+- Open Food Facts plus USDA enrichment for food when product identity can be matched
+- Open Beauty Facts enrichment for beauty and skincare when product identity can be matched
+- NIH DSLD routing for supplements
 - Gemini-powered explanations and assistant answers when the user adds a Gemini API key
 - saved products, local history, and compare mode
 
@@ -27,8 +28,9 @@ ScanCart is packaged here as a loadable Chrome Manifest V3 extension with no bui
 1. Click the ScanCart toolbar icon to open the side panel
 2. Open `Settings`
 3. Paste a Gemini API key if you want AI explanations and Q&A
-4. Toggle your product preferences
-5. Visit an Amazon skincare or food product page
+4. Paste a USDA API key if you want stronger food enrichment
+5. Toggle your product preferences
+6. Visit a supported product page
 
 ## Notes
 

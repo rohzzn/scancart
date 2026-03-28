@@ -1,18 +1,38 @@
 {
   "manifest_version": 3,
   "name": "ScanCart",
-  "version": "0.1.0",
-  "description": "Real-time shopping intelligence for Amazon skincare and food products.",
+  "version": "0.2.0",
+  "description": "Real-time shopping intelligence for product pages across major retailers.",
   "permissions": [
     "storage",
     "sidePanel",
     "tabs"
   ],
   "host_permissions": [
-    "https://www.amazon.com/*",
-    "https://amazon.com/*",
+    "https://*.amazon.com/*",
+    "https://*.target.com/*",
+    "https://*.instacart.com/*",
+    "https://*.walmart.com/*",
+    "https://*.wholefoodsmarket.com/*",
+    "https://*.sephora.com/*",
+    "https://*.costco.com/*",
+    "https://*.ebay.com/*",
+    "https://*.etsy.com/*",
+    "https://*.bestbuy.com/*",
+    "https://*.cvs.com/*",
+    "https://*.walgreens.com/*",
+    "https://*.kroger.com/*",
+    "https://*.samsclub.com/*",
+    "https://*.aldi.us/*",
+    "https://*.traderjoes.com/*",
+    "https://*.freshdirect.com/*",
+    "https://*.shipt.com/*",
+    "https://*.hungryroot.com/*",
+    "https://*.misfitsmarket.com/*",
     "https://world.openfoodfacts.org/*",
     "https://world.openbeautyfacts.org/*",
+    "https://api.nal.usda.gov/*",
+    "https://api.ods.od.nih.gov/*",
     "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
@@ -29,8 +49,26 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.amazon.com/*",
-        "https://amazon.com/*"
+        "https://*.amazon.com/*",
+        "https://*.target.com/*",
+        "https://*.instacart.com/*",
+        "https://*.walmart.com/*",
+        "https://*.wholefoodsmarket.com/*",
+        "https://*.sephora.com/*",
+        "https://*.costco.com/*",
+        "https://*.ebay.com/*",
+        "https://*.etsy.com/*",
+        "https://*.bestbuy.com/*",
+        "https://*.cvs.com/*",
+        "https://*.walgreens.com/*",
+        "https://*.kroger.com/*",
+        "https://*.samsclub.com/*",
+        "https://*.aldi.us/*",
+        "https://*.traderjoes.com/*",
+        "https://*.freshdirect.com/*",
+        "https://*.shipt.com/*",
+        "https://*.hungryroot.com/*",
+        "https://*.misfitsmarket.com/*"
       ],
       "js": [
         "content.js"
@@ -41,11 +79,30 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "assets/*"
+        "assets/*",
+        "extractors/*"
       ],
       "matches": [
-        "https://www.amazon.com/*",
-        "https://amazon.com/*"
+        "https://*.amazon.com/*",
+        "https://*.target.com/*",
+        "https://*.instacart.com/*",
+        "https://*.walmart.com/*",
+        "https://*.wholefoodsmarket.com/*",
+        "https://*.sephora.com/*",
+        "https://*.costco.com/*",
+        "https://*.ebay.com/*",
+        "https://*.etsy.com/*",
+        "https://*.bestbuy.com/*",
+        "https://*.cvs.com/*",
+        "https://*.walgreens.com/*",
+        "https://*.kroger.com/*",
+        "https://*.samsclub.com/*",
+        "https://*.aldi.us/*",
+        "https://*.traderjoes.com/*",
+        "https://*.freshdirect.com/*",
+        "https://*.shipt.com/*",
+        "https://*.hungryroot.com/*",
+        "https://*.misfitsmarket.com/*"
       ]
     }
   ]

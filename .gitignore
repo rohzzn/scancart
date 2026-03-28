@@ -23,6 +23,7 @@ Desktop.ini
 # Environment
 .env
 .env.local
+local.dev.config.json
 
 # Logs
 *.log
