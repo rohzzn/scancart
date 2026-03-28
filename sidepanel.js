@@ -1,4 +1,4 @@
-import { confidenceLabel, escapeHtml, formatPrice, prettyCategory, prettyRetailer, prettySubcategory, scoreToneClass } from "./lib/ui.js";
+import { escapeHtml, prettyCategory, prettySubcategory, scoreToneClass } from "./lib/ui.js";
 
 const panelContent = document.getElementById("panel-content");
 const refreshButton = document.getElementById("refresh-analysis-button");
@@ -6,9 +6,41 @@ const settingsButton = document.getElementById("open-settings-button");
 
 let currentTabId = null;
 let currentAnalysis = null;
-let currentCompare = null;
 let currentAssistantQuestion = "";
 let currentAssistantAnswer = "";
+
+const INGREDIENT_ICONS = {
+  good: `<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2.5,7 5.5,10.5 11.5,3.5"/></svg>`,
+  caution: `<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="7" y1="3.5" x2="7" y2="8"/><circle cx="7" cy="10.5" r="0.8" fill="currentColor" stroke="none"/></svg>`,
+  avoid: `<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3.5" y1="3.5" x2="10.5" y2="10.5"/><line x1="10.5" y1="3.5" x2="3.5" y2="10.5"/></svg>`,
+  neutral: `<svg viewBox="0 0 14 14" fill="currentColor"><circle cx="7" cy="7" r="2.5"/></svg>`
+};
+
+const NUTRITION_THRESHOLDS = {
+  sugars: { good: [0, 0], fair: [0.1, 5], caution: [5.1, 10], avoid: [10.1, Infinity], unit: "g", label: "Sugar" },
+  addedSugars: { good: [0, 0], fair: [0.1, 3], caution: [3.1, 8], avoid: [8.1, Infinity], unit: "g", label: "Added sugar" },
+  sodium: { good: [0, 140], fair: [141, 400], caution: [401, 800], avoid: [801, Infinity], unit: "mg", label: "Sodium" },
+  protein: { avoid: [0, 0], caution: [0.1, 4], fair: [4.1, 9], good: [9.1, Infinity], unit: "g", label: "Protein", higherIsBetter: true },
+  fiber: { caution: [0, 1], fair: [1.1, 2.9], good: [3, Infinity], unit: "g", label: "Fiber", higherIsBetter: true },
+  calories: { unit: "kcal", label: "Calories", neutral: true }
+};
+
+const GROUP_PREFIX_PATTERNS = [
+  /^ingredients?\s*:\s*/i,
+  /^active ingredients?\s*:\s*/i,
+  /^inactive ingredients?\s*:\s*/i,
+  /^contains\s*:\s*/i,
+  /^contains\s+less\s+than\s+\d+(?:\.\d+)?%\s+of\s*:?\s*/i,
+  /^contains\s+\d+(?:\.\d+)?%\s+or\s+less\s+of\s*:?\s*/i,
+  /^less\s+than\s+\d+(?:\.\d+)?%\s+of\s*:?\s*/i,
+  /^\d+(?:\.\d+)?%\s+or\s+less\s+of\s*:?\s*/i
+];
+
+const QUANTITY_PATTERNS = [
+  /^\s*(\d+(?:\.\d+)?)\s*(billion\s+cfu|million\s+cfu|cfu|mcg\s*dfe|mcg|mg|g|ml|iu|%)\s*(?:of\s+)?(.+)$/i,
+  /^\s*(.+?)\s*\((\d+(?:\.\d+)?)\s*(billion\s+cfu|million\s+cfu|cfu|mcg\s*dfe|mcg|mg|g|ml|iu|%)\)\s*$/i,
+  /^\s*(.+?)\s+(\d+(?:\.\d+)?)\s*(billion\s+cfu|million\s+cfu|cfu|mcg\s*dfe|mcg|mg|g|ml|iu|%)\s*$/i
+];
 
 function getActiveTab() {
   return chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => tab || null);
@@ -22,9 +54,8 @@ function renderLoadingState() {
   panelContent.innerHTML = `
     <section class="empty-state">
       <div class="orb"></div>
-      <p class="eyebrow">Analyzing</p>
-      <h2>Checking this product now</h2>
-      <p>Pulling product details, validating what we can, and building an explainable score.</p>
+      <h2>Analyzing</h2>
+      <p>Pulling product data and checking whether this is a scoreable item.</p>
     </section>
   `;
 }
@@ -33,7 +64,6 @@ function renderEmptyState(title, message) {
   panelContent.innerHTML = `
     <section class="empty-state">
       <div class="orb"></div>
-      <p class="eyebrow">Waiting</p>
       <h2>${escapeHtml(title)}</h2>
       <p>${escapeHtml(message)}</p>
     </section>
@@ -44,223 +74,388 @@ function renderErrorState(message) {
   panelContent.innerHTML = `
     <section class="empty-state">
       <div class="orb"></div>
-      <p class="eyebrow">Error</p>
-      <h2>ScanCart hit a snag</h2>
+      <h2>Something went wrong</h2>
       <p>${escapeHtml(message)}</p>
     </section>
   `;
 }
 
-function renderSignalCards(items, emptyMessage, kind) {
+function renderIngredientChips(items = []) {
   if (!items.length) {
-    return `<div class="signal-card"><div class="muted">${escapeHtml(emptyMessage)}</div></div>`;
+    return "";
   }
 
-  return items.map((item) => {
-    const severity = kind === "benefit" ? "low" : (item.severity || "medium");
-    const effect = kind === "benefit" ? (item.effect || "+") : (item.effect || severity);
-    return `
-      <article class="signal-card">
-        <div class="signal-top">
-          <strong>${escapeHtml(item.title)}</strong>
-          <span class="severity-pill ${escapeHtml(severity)}">${escapeHtml(effect)}</span>
-        </div>
-        <div class="signal-detail">${escapeHtml(item.detail || item.reason || "")}</div>
-      </article>
-    `;
-  }).join("");
-}
-
-function renderPreferenceHits(items) {
-  if (!items.length) {
-    return `<div class="signal-card"><div class="muted">No active preference adjustments were applied to this score.</div></div>`;
-  }
-
-  return items.map((item) => `
-    <article class="signal-card">
-      <div class="signal-detail">${escapeHtml(item)}</div>
-    </article>
-  `).join("");
-}
-
-function renderSources(sources, confidence) {
-  const summary = `
-    <article class="source-card">
-      <div class="source-top">
-        <strong>${escapeHtml(confidenceLabel(confidence.overall))}</strong>
-        <span class="confidence-chip">${Math.round(confidence.overall * 100)}%</span>
-      </div>
-      <div class="source-detail">Identity ${Math.round(confidence.identity * 100)}% - category ${Math.round(confidence.category * 100)}% - ingredients ${Math.round(confidence.ingredients * 100)}% - nutrition ${Math.round(confidence.nutrition * 100)}%</div>
-    </article>
-  `;
-
-  return summary + sources.map((source) => `
-    <article class="source-card">
-      <div class="source-top">
-        <strong>${escapeHtml(source.sourceLabel)}</strong>
-        <span class="mini-metric">${Math.round(source.authorityWeight * 100)}%</span>
-      </div>
-      <div class="source-detail">Type: ${escapeHtml(source.matchType || "page")}</div>
-      <div class="source-detail">Fields: ${escapeHtml(source.fields.join(", ") || "none")}</div>
-      <div class="source-detail">Selected for: ${escapeHtml(source.selectedFor.join(", ") || "support only")}</div>
-    </article>
-  `).join("");
-}
-
-function renderAlternativeModes(alternatives) {
   return `
-    <div class="mini-chip-row">
-      <span class="mode-chip">Healthier ${alternatives.healthier.length}</span>
-      <span class="mode-chip">Better value ${alternatives.betterValue.length}</span>
-      <span class="mode-chip">Preference fit ${alternatives.closerMatch.length}</span>
+    <div class="ingredient-chip-row">
+      ${items.slice(0, 6).map((item) => `<span class="ingredient-chip">${escapeHtml(item)}</span>`).join("")}
     </div>
   `;
 }
 
-function renderAlternatives(alternatives) {
-  const primary = alternatives.primary || [];
-  if (!primary.length) {
-    return `<article class="alt-card"><div class="muted">No strong alternatives were found yet. Analyze a few similar products and ScanCart will build a better comparison pool.</div></article>`;
+function renderSignalList(items, emptyMessage, variant) {
+  if (!items.length) {
+    return `<article class="signal-item"><p class="muted">${escapeHtml(emptyMessage)}</p></article>`;
   }
 
-  return primary.map((item, index) => `
-    <article class="alt-card">
-      <div class="alt-top">
-        <img class="alt-image" src="${escapeHtml(item.image || "")}" alt="">
-        <div class="alt-stack">
-          <div class="alt-title-row">
-            <div>
-              <div class="hero-pills">
-                <span class="score-pill ${escapeHtml(scoreToneClass(item.scoreTone))}">${item.score} - ${escapeHtml(item.scoreLabel)}</span>
-                <span class="pill">${escapeHtml(item.modeLabel || "Alt")}</span>
-                <span class="pill">${escapeHtml(item.sourceLabel || "Candidate pool")}</span>
-              </div>
-              <h4>${escapeHtml(item.title)}</h4>
-            </div>
-            <span class="pill">${escapeHtml(item.price || "Price unavailable")}</span>
-          </div>
-          <div class="alt-detail">${escapeHtml((item.reasons || []).slice(0, 2).join(" ") || "Potentially cleaner or better-fit option.")}</div>
+  return items.map((item) => `
+    <article class="signal-item ${escapeHtml(variant)}">
+      <div class="signal-heading">
+        <div>
+          <h4>${escapeHtml(item.title)}</h4>
+          ${renderIngredientChips(item.matchedIngredients || [])}
         </div>
+        <span class="effect-pill ${escapeHtml(variant)}">${escapeHtml(item.effect || (variant === "positive" ? "+" : "-"))}</span>
       </div>
-      <div class="alt-actions">
-        <button class="button ghost small" data-action="compare" data-alt-index="${index}">Compare</button>
-        <button class="button primary small" data-action="open-alt" data-alt-index="${index}">Open product</button>
-      </div>
+      <p class="signal-copy">${escapeHtml(item.detail || item.reason || "")}</p>
     </article>
   `).join("");
 }
 
-function renderCompareCard() {
-  if (!currentCompare) {
-    return "";
+function formatQuantity(value, unit) {
+  const normalizedUnit = String(unit || "").trim().toLowerCase();
+  if (!normalizedUnit) {
+    return null;
+  }
+  if (normalizedUnit === "%") {
+    return `${value}%`;
+  }
+  if (normalizedUnit === "iu") {
+    return `${value} IU`;
+  }
+  if (normalizedUnit === "cfu") {
+    return `${value} CFU`;
+  }
+  if (normalizedUnit === "million cfu") {
+    return `${value} million CFU`;
+  }
+  if (normalizedUnit === "billion cfu") {
+    return `${value} billion CFU`;
+  }
+  if (normalizedUnit === "mcg dfe") {
+    return `${value} mcg DFE`;
+  }
+  return `${value} ${normalizedUnit}`;
+}
+
+function stripIngredientPrefix(text) {
+  let cleaned = String(text || "").trim();
+  for (const pattern of GROUP_PREFIX_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+  return cleaned;
+}
+
+function cleanIngredientName(text) {
+  return String(text || "")
+    .replace(/^[-:;,.\s]+/, "")
+    .replace(/[-:;,.\s]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalizeIngredientName(text) {
+  return cleanIngredientName(text)
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, "")
+    .replace(/[^a-z0-9+\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseIngredientEntry(rawIngredient) {
+  const sourceText = String(rawIngredient?.displayName || rawIngredient?.canonicalName || rawIngredient || "").trim();
+  if (!sourceText) {
+    return null;
   }
 
-  const alternative = currentCompare.alternative;
+  let text = stripIngredientPrefix(sourceText);
+  let quantity = rawIngredient?.quantityText || rawIngredient?.quantity || rawIngredient?.amount || null;
+  let name = text;
+
+  for (const pattern of QUANTITY_PATTERNS) {
+    const match = text.match(pattern);
+    if (!match) {
+      continue;
+    }
+
+    if (pattern === QUANTITY_PATTERNS[0]) {
+      quantity = formatQuantity(match[1], match[2]);
+      name = match[3];
+    } else {
+      name = match[1];
+      quantity = formatQuantity(match[2], match[3]);
+    }
+    break;
+  }
+
+  name = cleanIngredientName(name);
+  const canonicalName = canonicalizeIngredientName(name || sourceText);
+  if (!canonicalName) {
+    return null;
+  }
+
+  return {
+    displayName: name || cleanIngredientName(sourceText),
+    canonicalName,
+    quantityText: quantity ? String(quantity) : "Not disclosed"
+  };
+}
+
+function parseIngredientTextList(ingredientsText) {
+  const text = String(ingredientsText || "").trim();
+  if (!text) {
+    return [];
+  }
+
+  return text
+    .split(/,(?![^()]*\))/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => parseIngredientEntry(item))
+    .filter(Boolean);
+}
+
+function toIngredientList(product) {
+  const baseItems = Array.isArray(product?.ingredientsList) && product.ingredientsList.length
+    ? product.ingredientsList
+    : Array.isArray(product?.ingredients) && product.ingredients.length
+      ? product.ingredients
+      : parseIngredientTextList(product?.ingredients || "");
+
+  const deduped = new Map();
+  for (const item of baseItems) {
+    const parsed = parseIngredientEntry(item);
+    if (!parsed) {
+      continue;
+    }
+
+    const existing = deduped.get(parsed.canonicalName);
+    if (!existing) {
+      deduped.set(parsed.canonicalName, parsed);
+      continue;
+    }
+
+    const existingHasQuantity = existing.quantityText && existing.quantityText !== "Not disclosed";
+    const parsedHasQuantity = parsed.quantityText && parsed.quantityText !== "Not disclosed";
+    if (!existingHasQuantity && parsedHasQuantity) {
+      deduped.set(parsed.canonicalName, parsed);
+    }
+  }
+
+  return [...deduped.values()];
+}
+
+function ingredientStatusIcon(ingredient, flags, benefits) {
+  const name = ingredient.canonicalName;
+
+  for (const flag of flags) {
+    const matched = (flag.matchedIngredients || []).map((item) => canonicalizeIngredientName(item));
+    if (matched.some((value) => value && (name.includes(value) || value.includes(name)))) {
+      const severity = flag.severity || "medium";
+      const tone = severity === "critical" || severity === "high" ? "avoid" : "caution";
+      const label = escapeHtml(flag.title || (tone === "avoid" ? "Avoid" : "Caution"));
+      return `<span class="ing-icon ${tone}" title="${label}">${INGREDIENT_ICONS[tone]}</span>`;
+    }
+  }
+
+  for (const benefit of benefits) {
+    const matched = (benefit.matchedIngredients || []).map((item) => canonicalizeIngredientName(item));
+    if (matched.some((value) => value && (name.includes(value) || value.includes(name)))) {
+      return `<span class="ing-icon good" title="${escapeHtml(benefit.title || "Beneficial")}">${INGREDIENT_ICONS.good}</span>`;
+    }
+  }
+
+  return `<span class="ing-icon neutral" title="Neutral">${INGREDIENT_ICONS.neutral}</span>`;
+}
+
+function renderIngredients(ingredients = [], flags = [], benefits = []) {
+  if (!ingredients.length) {
+    return `<article class="signal-item"><p class="muted">No ingredient data available for this product.</p></article>`;
+  }
+
   return `
-    <section class="compare-card">
-      <div class="compare-header">
-        <div>
-          <p class="section-kicker">Compare</p>
-          <h3>Current product vs alternative</h3>
-          <p class="section-subtitle">${escapeHtml(currentCompare.summary)}</p>
-        </div>
-        <button class="button ghost small" data-action="close-compare">Close</button>
-      </div>
-      <div class="compare-table">
-        <div class="compare-row">
-          <strong>Overall score</strong>
-          <div>${currentAnalysis.score.value} - ${escapeHtml(currentAnalysis.score.label)} vs ${alternative.score} - ${escapeHtml(alternative.scoreLabel)}</div>
-        </div>
-        <div class="compare-row">
-          <strong>Main concerns</strong>
-          <div>${escapeHtml(currentAnalysis.flags.slice(0, 2).map((item) => item.title).join(", ") || "No major concerns surfaced")}</div>
-        </div>
-        <div class="compare-row">
-          <strong>Why the alternative looks better</strong>
-          <div>${escapeHtml((alternative.reasons || []).join(" ") || "It appears to offer a stronger fit based on the available evidence.")}</div>
-        </div>
-        <div class="compare-row">
-          <strong>Price snapshot</strong>
-          <div>${escapeHtml(formatPrice(currentAnalysis.product.price))} vs ${escapeHtml(alternative.price || "Price unavailable")}</div>
-        </div>
-      </div>
-    </section>
+    <div class="ingredient-list">
+      ${ingredients.map((ingredient) => `
+        <article class="ingredient-row">
+          <div class="ingredient-main">
+            ${ingredientStatusIcon(ingredient, flags, benefits)}
+            <div class="ingredient-text">
+              <span class="ingredient-name">${escapeHtml(ingredient.displayName)}</span>
+            </div>
+          </div>
+          <span class="ingredient-qty ${ingredient.quantityText === "Not disclosed" ? "missing" : ""}">${escapeHtml(ingredient.quantityText)}</span>
+        </article>
+      `).join("")}
+    </div>
   `;
 }
 
-function renderAssistantCard() {
-  const category = currentAnalysis.product.category;
-  const suggestedQuestions = category === "food"
-    ? ["Why was this rated caution?", "Is this okay for a high-protein diet?", "What ingredient caused the warning?"]
-    : category === "skincare"
-      ? ["Why is this a concern for sensitive skin?", "What ingredient is doing the most good here?", "Why is the alternative better?"]
-      : ["Why was this scored conservatively?", "What data is missing here?", "Why does confidence matter for this result?"];
+function nutritionTone(key, value) {
+  const rule = NUTRITION_THRESHOLDS[key];
+  if (!rule || rule.neutral) {
+    return "neutral";
+  }
+
+  for (const tone of ["good", "fair", "caution", "avoid"]) {
+    const range = rule[tone];
+    if (range && value >= range[0] && value <= range[1]) {
+      return tone;
+    }
+  }
+
+  return "neutral";
+}
+
+function renderNutritionProsCons(nutrition) {
+  if (!nutrition || typeof nutrition !== "object" || !Object.keys(nutrition).length) {
+    return "";
+  }
+
+  const orderedKeys = ["calories", "protein", "fiber", "sugars", "addedSugars", "sodium"];
+  const chips = [];
+
+  for (const key of orderedKeys) {
+    const value = nutrition[key];
+    if (value == null) {
+      continue;
+    }
+
+    const config = NUTRITION_THRESHOLDS[key];
+    if (!config) {
+      continue;
+    }
+
+    if (key === "addedSugars" && value === nutrition.sugars) {
+      continue;
+    }
+
+    const tone = nutritionTone(key, value);
+    const icon = tone === "good"
+      ? INGREDIENT_ICONS.good
+      : tone === "avoid"
+        ? INGREDIENT_ICONS.avoid
+        : tone === "fair" || tone === "caution"
+          ? INGREDIENT_ICONS.caution
+          : "";
+    const displayValue = Number.isInteger(value) ? String(value) : Number(value).toFixed(1);
+
+    chips.push(`
+      <div class="nutri-chip ${tone}">
+        ${icon ? `<span class="nutri-icon">${icon}</span>` : ""}
+        <span>${escapeHtml(`${displayValue}${config.unit === "%" ? "%" : ` ${config.unit}`} ${config.label.toLowerCase()}`)}</span>
+      </div>
+    `);
+  }
+
+  if (!chips.length) {
+    return "";
+  }
+
+  return `<div class="nutri-row">${chips.join("")}</div>`;
+}
+
+function shouldShowScore(analysis, ingredients) {
+  const category = analysis.classification?.category || analysis.product?.category || "unknown";
+  const confidence = typeof analysis.confidence?.overall === "number" ? analysis.confidence.overall : 0;
+  const hasNutrition = Boolean(analysis.product?.nutrition && Object.keys(analysis.product.nutrition).length);
+  const hasIngredients = ingredients.length >= 2;
+
+  if (!analysis?.product?.title || category === "unknown") {
+    return false;
+  }
+  if (analysis.states?.unsupportedCategory || analysis.states?.lowConfidence || confidence < 0.62) {
+    return false;
+  }
+  if (category === "food") {
+    return hasNutrition || hasIngredients;
+  }
+  return hasIngredients;
+}
+
+function renderScoreCard(analysis, ingredients) {
+  if (!shouldShowScore(analysis, ingredients)) {
+    return `
+      <div class="score-card unscored">
+        <span class="score-unavailable-title">Not scored</span>
+        <span class="score-note">Needs a verified item match</span>
+      </div>
+    `;
+  }
+
+  const scoreTone = scoreToneClass(analysis.score.tone);
+  return `
+    <div class="score-card ${escapeHtml(scoreTone)}">
+      <span class="score-number">${analysis.score.value}</span>
+      <span class="score-denominator">/ 100</span>
+      <span class="score-label">${escapeHtml(analysis.score.label)}</span>
+    </div>
+  `;
+}
+
+function renderAlternatives(alternatives, analysis) {
+  const categoryLabel = prettySubcategory(analysis.classification?.subcategory) === "General"
+    ? prettyCategory(analysis.classification?.category)
+    : `${prettySubcategory(analysis.classification?.subcategory)} ${prettyCategory(analysis.classification?.category).toLowerCase()}`;
+
+  if (!alternatives.length) {
+    return `
+      <article class="signal-item">
+        <p class="muted">No stronger same-category alternatives have been confirmed yet. ScanCart will surface them as soon as it finds better-scoring matches.</p>
+      </article>
+    `;
+  }
 
   return `
-    <section class="assistant-card">
-      <div class="assistant-header">
-        <div>
-          <p class="section-kicker">Assistant</p>
-          <h3>Ask ScanCart</h3>
-          <p class="section-subtitle">Grounded in the current score, evidence, and product data.</p>
-        </div>
-      </div>
+    <div class="alternatives-list">
+      ${alternatives.map((item, index) => `
+        <article class="alternative-card">
+          <div class="alternative-main">
+            ${item.image ? `<img class="alternative-image" src="${escapeHtml(item.image)}" alt="">` : `<div class="alternative-image placeholder"></div>`}
+            <div class="alternative-copy">
+              <div class="alternative-topline">
+                <h4>${escapeHtml(item.title)}</h4>
+                <span class="score-mini ${escapeHtml(scoreToneClass(item.scoreTone))}">${escapeHtml(String(item.score))}/100</span>
+              </div>
+              <p class="muted">${escapeHtml(categoryLabel)}</p>
+              <p class="alternative-reason">${escapeHtml((item.reasons || []).slice(0, 2).join(" ") || "Higher score and cleaner fit within the same category.")}</p>
+            </div>
+          </div>
+          <div class="alternative-actions">
+            <button class="button primary small" data-action="open-alt" data-alt-index="${index}">Open product</button>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAssistantCard(analysis) {
+  const category = analysis.classification?.category || analysis.product?.category || "unknown";
+  const suggestedQuestions = category === "food"
+    ? ["Why is this score low?", "Which ingredients are the main negatives?", "Why is the alternative better?"]
+    : category === "skincare"
+      ? ["Which ingredients are helping here?", "Which ingredients are the biggest concern?", "Why is the alternative better?"]
+      : ["Why did this score this way?", "What ingredients caused the warning?", "Why is the alternative better?"];
+
+  return `
+    <section class="section-card assistant-card">
+      <div class="section-head"><h3>Ask ScanCart</h3></div>
       <div class="suggested-row">
         ${suggestedQuestions.map((question) => `<button class="button ghost small" data-suggested-question="${escapeHtml(question)}">${escapeHtml(question)}</button>`).join("")}
       </div>
       <form id="assistant-form" class="assistant-form">
-        <textarea id="assistant-input" name="assistantQuestion" placeholder="Ask why this scored the way it did, whether it fits your preferences, or why an alternative looks better.">${escapeHtml(currentAssistantQuestion)}</textarea>
+        <textarea id="assistant-input" name="assistantQuestion" placeholder="Ask about the score, ingredients, or an alternative.">${escapeHtml(currentAssistantQuestion)}</textarea>
         <div class="assistant-actions">
           <button class="button primary" type="submit">Ask</button>
         </div>
       </form>
-      <div class="assistant-response">
-        ${currentAssistantAnswer ? `
-          <article class="assistant-answer">
-            <strong>Answer</strong>
-            <div class="signal-detail">${escapeHtml(currentAssistantAnswer)}</div>
-          </article>
-        ` : `
-          <article class="assistant-answer">
-            <div class="muted">Ask a question to get a plain-English explanation grounded in the current product analysis.</div>
-          </article>
-        `}
-      </div>
+      <article class="assistant-answer">
+        ${currentAssistantAnswer
+          ? `<p>${escapeHtml(currentAssistantAnswer)}</p>`
+          : `<p class="muted">Type a question above to get a plain-English answer.</p>`}
+      </article>
     </section>
   `;
-}
-
-function renderStatusBanners(analysis) {
-  const banners = [];
-
-  if (analysis.states.lowConfidence) {
-    banners.push(`
-      <section class="status-banner low-confidence">
-        <p class="banner-title">Limited confidence</p>
-        <p class="banner-copy">Some product fields could not be cross-checked cleanly, so ScanCart keeps the language and score conservative.</p>
-      </section>
-    `);
-  }
-
-  if (analysis.states.unsupportedCategory) {
-    banners.push(`
-      <section class="status-banner unsupported">
-        <p class="banner-title">Unsupported category</p>
-        <p class="banner-copy">This page was detected as a product page, but the product does not fit a strong ScanCart scoring family yet. The score is a cautious fallback.</p>
-      </section>
-    `);
-  }
-
-  if (analysis.warnings.length) {
-    banners.push(`
-      <section class="notice-banner">
-        <strong>Verification note</strong>
-        <div class="signal-detail">${escapeHtml(analysis.warnings.join(" "))}</div>
-      </section>
-    `);
-  }
-
-  return banners.join("");
 }
 
 function renderAnalysis() {
@@ -269,129 +464,50 @@ function renderAnalysis() {
   }
 
   const analysis = currentAnalysis;
-  const scoreTone = scoreToneClass(analysis.score.tone);
-  const alternatives = analysis.alternatives;
-  const sourceBadges = analysis.sources.slice(0, 4).map((source) => `<span class="source-pill">${escapeHtml(source.sourceLabel)}</span>`).join("");
+  const product = analysis.product;
+  const ingredients = toIngredientList(product);
 
   panelContent.innerHTML = `
-    <div class="panel-shell">
+    <div class="panel-stack">
       <section class="hero-card">
-        <div class="hero-grid">
-          <div class="hero-copy">
-            <div class="hero-heading">
-              <img class="product-thumb" src="${escapeHtml(analysis.product.image || "")}" alt="">
-              <div>
-                <div class="hero-pills">
-                  <span class="pill">${escapeHtml(prettyRetailer(analysis.product.retailerLabel, analysis.product.retailer))}</span>
-                  <span class="pill">${escapeHtml(prettyCategory(analysis.product.category))}</span>
-                  <span class="pill">${escapeHtml(prettySubcategory(analysis.product.subcategory))}</span>
-                  <span class="confidence-chip">${escapeHtml(confidenceLabel(analysis.confidence.overall))}</span>
-                </div>
-                <h2 class="product-title">${escapeHtml(analysis.product.title)}</h2>
-                <p class="brand-line muted">${escapeHtml(analysis.product.brand || "Brand unavailable")}</p>
-              </div>
-            </div>
-            <p class="summary-copy">${escapeHtml(analysis.explanations.shortExplanation)}</p>
-            <div class="tag-row">
-              ${(analysis.tags.length ? analysis.tags : ["source-backed score", confidenceLabel(analysis.confidence.overall)]).map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}
-            </div>
-            <div class="source-badge-row">${sourceBadges}</div>
-            <div class="metrics-strip">
-              <div class="metric-card">
-                <p class="metric-label">Price</p>
-                <div class="metric-value">${escapeHtml(formatPrice(analysis.product.price))}</div>
-              </div>
-              <div class="metric-card">
-                <p class="metric-label">Rating</p>
-                <div class="metric-value">${escapeHtml(analysis.product.rating ? `${analysis.product.rating}${analysis.product.reviewCount ? ` - ${analysis.product.reviewCount} reviews` : ""}` : "Rating unavailable")}</div>
-              </div>
-              <div class="metric-card">
-                <p class="metric-label">Confidence</p>
-                <div class="metric-value">${Math.round(analysis.confidence.overall * 100)}%</div>
-              </div>
-            </div>
-            <div class="hero-actions">
-              <button class="button primary" data-action="toggle-save">${analysis.saved ? "Saved" : "Save product"}</button>
-              <button class="button ghost" data-action="open-product">Open product page</button>
+        <div class="hero-layout">
+          <div class="hero-product">
+            ${product.image ? `<img class="product-image" src="${escapeHtml(product.image)}" alt="">` : `<div class="product-image placeholder"></div>`}
+            <div class="hero-copy">
+              <h2 class="product-title">${escapeHtml(product.title || "Product unavailable")}</h2>
+              ${product.brand ? `<p class="muted" style="font-size:12px;margin-top:2px;">${escapeHtml(product.brand)}</p>` : ""}
             </div>
           </div>
-          <div class="score-stack">
-            <div class="score-orb ${escapeHtml(scoreTone)}">
-              <div>
-                <span class="score-number">${analysis.score.value}</span>
-                <span class="score-text">${escapeHtml(analysis.score.label)}</span>
-              </div>
-            </div>
-            <span class="mini-metric ${escapeHtml(scoreTone)}">${getAlternativeList().length} alternatives ready</span>
-          </div>
-        </div>
-      </section>
-
-      ${renderStatusBanners(analysis)}
-
-      <section class="state-card">
-        <div class="section-header">
-          <div>
-            <p class="section-kicker">Summary</p>
-            <h3>Why it scored this way</h3>
-            <p class="section-subtitle">${escapeHtml(analysis.explanations.detailedExplanation || analysis.explanations.shortExplanation)}</p>
-          </div>
+          ${renderScoreCard(analysis, ingredients)}
         </div>
       </section>
 
       <section class="section-card">
-        <div class="section-header">
-          <div>
-            <p class="section-kicker">Breakdown</p>
-            <h3>Key positives and concerns</h3>
-          </div>
-        </div>
-        <div class="two-column">
-          <div class="stack-list">
-            <p class="section-kicker">Top positives</p>
-            ${renderSignalCards(analysis.benefits.slice(0, 4), "No standout positives were identified.", "benefit")}
-          </div>
-          <div class="stack-list">
-            <p class="section-kicker">Key concerns</p>
-            ${renderSignalCards(analysis.flags.slice(0, 4), "No major concerns were identified.", "flag")}
-          </div>
+        <div class="section-head"><h3>Concerns</h3></div>
+        <div class="signal-list">
+          ${renderSignalList(analysis.flags, "No major concerns identified.", "negative")}
         </div>
       </section>
 
       <section class="section-card">
-        <div class="section-header">
-          <div>
-            <p class="section-kicker">Personalization</p>
-            <h3>Preference fit</h3>
-          </div>
+        <div class="section-head"><h3>Benefits</h3></div>
+        <div class="signal-list">
+          ${renderSignalList(analysis.benefits, "No standout benefits identified.", "positive")}
         </div>
-        <div class="stack-list">${renderPreferenceHits(analysis.preferenceHits)}</div>
       </section>
 
       <section class="section-card">
-        <div class="section-header">
-          <div>
-            <p class="section-kicker">Trust</p>
-            <h3>Source transparency</h3>
-          </div>
-        </div>
-        <div class="stack-list">${renderSources(analysis.sources, analysis.confidence)}</div>
+        <div class="section-head"><h3>Ingredients</h3></div>
+        ${renderNutritionProsCons(product.nutrition)}
+        ${renderIngredients(ingredients, analysis.flags || [], analysis.benefits || [])}
       </section>
+
+      ${renderAssistantCard(analysis)}
 
       <section class="section-card">
-        <div class="section-header">
-          <div>
-            <p class="section-kicker">Alternatives</p>
-            <h3>Better-fit options</h3>
-            <p class="section-subtitle">Ranked for cleaner composition, stronger preference fit, or better value inside the current candidate pool.</p>
-          </div>
-        </div>
-        ${renderAlternativeModes(alternatives)}
-        <div class="alternatives-grid">${renderAlternatives(alternatives)}</div>
+        <div class="section-head"><h3>Better alternatives</h3></div>
+        ${renderAlternatives(getAlternativeList(), analysis)}
       </section>
-
-      ${renderCompareCard()}
-      ${renderAssistantCard()}
     </div>
   `;
 }
@@ -405,7 +521,7 @@ async function askAssistant(question) {
     type: "SCANCART_ASK_ASSISTANT",
     tabId: currentTabId,
     question,
-    compareTarget: currentCompare?.alternative || null
+    compareTarget: null
   });
 
   currentAssistantAnswer = response?.answer || response?.error || "No answer available.";
@@ -435,12 +551,11 @@ async function loadAnalysis(forceRefresh = false) {
     }
 
     if (!analysis) {
-      renderEmptyState("Open a supported product page", "ScanCart analyzes product pages across major retailers. Once you land on a supported product page, the side panel will populate automatically.");
+      renderEmptyState("Open a supported product page", "ScanCart will populate once you land on a supported retailer product page.");
       return;
     }
 
     currentAnalysis = analysis;
-    currentCompare = null;
     currentAssistantQuestion = "";
     currentAssistantAnswer = "";
     renderAnalysis();
@@ -466,44 +581,11 @@ panelContent.addEventListener("click", async (event) => {
     return;
   }
 
-  if (action === "toggle-save") {
-    const response = await chrome.runtime.sendMessage({ type: "SCANCART_TOGGLE_SAVE", tabId: currentTabId });
-    if (response?.ok) {
-      currentAnalysis = { ...currentAnalysis, saved: response.saved };
-      renderAnalysis();
-    }
-    return;
-  }
-
-  if (action === "open-product" && currentAnalysis.product.url) {
-    await chrome.tabs.update(currentTabId, { url: currentAnalysis.product.url });
-    return;
-  }
-
   if (action === "open-alt") {
     const alternative = getAlternativeList()[Number(button.dataset.altIndex)];
     if (alternative?.url) {
       await chrome.tabs.update(currentTabId, { url: alternative.url });
     }
-    return;
-  }
-
-  if (action === "compare") {
-    const alternative = getAlternativeList()[Number(button.dataset.altIndex)];
-    if (!alternative) {
-      return;
-    }
-    const response = await chrome.runtime.sendMessage({ type: "SCANCART_BUILD_COMPARE", tabId: currentTabId, alternative });
-    if (response?.ok) {
-      currentCompare = { alternative, summary: response.summary };
-      renderAnalysis();
-    }
-    return;
-  }
-
-  if (action === "close-compare") {
-    currentCompare = null;
-    renderAnalysis();
   }
 });
 

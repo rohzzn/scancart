@@ -9,16 +9,17 @@
   </head>
   <body>
     <main class="popup-shell">
-      <section class="popup-hero">
-        <div>
-          <p class="eyebrow">ScanCart</p>
-          <h1>Shopping intelligence, on-page.</h1>
+
+      <header class="popup-hero">
+        <div class="popup-brand">
+          <span class="popup-logo"></span>
+          <h1>ScanCart</h1>
         </div>
-        <button id="open-panel-button" class="button primary">Open side panel</button>
-      </section>
+        <button id="open-panel-button" class="button primary">Open panel</button>
+      </header>
 
       <section class="popup-card" id="current-summary-card">
-        <div class="section-head">
+        <div class="popup-card-head">
           <h2>Current page</h2>
           <button id="refresh-button" class="button ghost small">Refresh</button>
         </div>
@@ -26,7 +27,7 @@
       </section>
 
       <section class="popup-card">
-        <div class="section-head">
+        <div class="popup-card-head">
           <h2>Quick preferences</h2>
           <button id="settings-button" class="button ghost small">Settings</button>
         </div>
@@ -34,15 +35,15 @@
       </section>
 
       <section class="popup-card">
-        <div class="section-head">
-          <h2>Recent analyses</h2>
+        <div class="popup-card-head">
+          <h2>Recent</h2>
         </div>
         <div id="recent-list" class="stack-list">
-          <div class="state-line">No products analyzed yet.</div>
+          <div class="state-line">No products analysed yet.</div>
         </div>
       </section>
-    </main>
 
+    </main>
     <script type="module" src="popup.js"></script>
   </body>
 </html>
